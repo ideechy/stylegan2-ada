@@ -18,7 +18,7 @@ import dnnlib
 import dnnlib.tflib as tflib
 from dnnlib.tflib.autosummary import autosummary
 
-from training import dataset
+from training import dataset, misc
 
 #----------------------------------------------------------------------------
 # Select size and contents of the image snapshot grids that are exported
@@ -121,6 +121,10 @@ def training_loop(
         G = tflib.Network('G', num_channels=training_set.shape[0], resolution=training_set.shape[1], label_size=training_set.label_size, **G_args)
         D = tflib.Network('D', num_channels=training_set.shape[0], resolution=training_set.shape[1], label_size=training_set.label_size, **D_args)
         Gs = G.clone('Gs')
+        if resume_pkl == 'latest':
+            out_dir = misc.get_parent_dir(run_dir)
+            resume_pkl = misc.locate_latest_pkl(out_dir)
+        resume_kimg = misc.parse_kimg_from_network_name(resume_pkl)
         if resume_pkl is not None:
             print(f'Resuming from "{resume_pkl}"')
             with dnnlib.util.open_url(resume_pkl) as f:
@@ -217,10 +221,10 @@ def training_loop(
     print(f'Training for {total_kimg} kimg...')
     print()
     if progress_fn is not None:
-        progress_fn(0, total_kimg)
+        progress_fn(int(resume_kimg), total_kimg)
     tick_start_time = time.time()
     maintenance_time = tick_start_time - start_time
-    cur_nimg = 0
+    cur_nimg = int(resume_kimg * 1000)
     cur_tick = -1
     tick_start_nimg = cur_nimg
     running_mb_counter = 0
