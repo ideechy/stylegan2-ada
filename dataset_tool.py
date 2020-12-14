@@ -657,10 +657,8 @@ def create_from_images(tfrecord_dir, image_dir, shuffle):
         error('No input images found')
 
     img = np.asarray(PIL.Image.open(image_filenames[0]))
-    resolution = img.shape[0]
+    resolution = max(img.shape[:2])
     channels = img.shape[2] if img.ndim == 3 else 1
-    if img.shape[1] != resolution:
-        error('Input images must have the same width and height')
     if resolution != 2 ** int(np.floor(np.log2(resolution))):
         error('Input image resolution must be a power-of-two')
     if channels not in [1, 3]:
@@ -669,12 +667,62 @@ def create_from_images(tfrecord_dir, image_dir, shuffle):
     with TFRecordExporter(tfrecord_dir, len(image_filenames)) as tfr:
         order = tfr.choose_shuffled_order() if shuffle else np.arange(len(image_filenames))
         for idx in range(order.size):
-            img = np.asarray(PIL.Image.open(image_filenames[order[idx]]))
-            if channels == 1:
-                img = img[np.newaxis, :, :] # HW => CHW
-            else:
-                img = img.transpose([2, 0, 1]) # HWC => CHW
-            tfr.add_image(img)
+            try:
+                img = np.asarray(PIL.Image.open(image_filenames[order[idx]]))
+                if channels == 1:
+                    img = img[np.newaxis, :, :] # HW => CHW
+                else:
+                    img = img.transpose([2, 0, 1]) # HWC => CHW
+                if img.shape[1] == img.shape[2]:
+                    tfr.add_image(img)
+                else:
+                    canvas = np.zeros([3, resolution, resolution], dtype=np.uint8)
+                    if img.shape[1] > img.shape[2]:
+                        cw = int(np.round(resolution * img.shape[2] / img.shape[1]))
+                        canvas[:, :, (resolution - cw) // 2 : (resolution + cw) // 2] = img
+                    else:
+                        ch = int(np.round(resolution * img.shape[1] / img.shape[2]))
+                        canvas[:, (resolution - ch) // 2 : (resolution + ch) // 2, :] = img
+                    tfr.add_image(canvas)
+            except Exception as e:
+                print(image_filenames[order[idx]])
+                print(e)
+
+#----------------------------------------------------------------------------
+
+def create_from_images_pad(tfrecord_dir, image_dir, resolution, shuffle):
+    print('Loading images from "%s"' % image_dir)
+    image_filenames = sorted(glob.glob(os.path.join(image_dir, '*')))
+    if len(image_filenames) == 0:
+        error('No input images found')
+
+    img = np.asarray(PIL.Image.open(image_filenames[0]))
+    channels = img.shape[2] if img.ndim == 3 else 1
+    if channels not in [1, 3]:
+        error('Input images must be stored as RGB or grayscale')
+
+    with TFRecordExporter(tfrecord_dir, len(image_filenames)) as tfr:
+        order = tfr.choose_shuffled_order() if shuffle else np.arange(len(image_filenames))
+        for idx in range(order.size):
+            try:
+                img = np.asarray(PIL.Image.open(image_filenames[order[idx]]))
+                if img.shape[0] < img.shape[1]:
+                    continue
+                cw = int(np.round(resolution * img.shape[1] / img.shape[0]))
+                img = PIL.Image.fromarray(img, 'RGB')
+                img = img.resize((cw, resolution), PIL.Image.ANTIALIAS)
+                img = np.asarray(img)
+                if channels == 1:
+                    img = img[np.newaxis, :, :]
+                else:
+                    img = img.transpose([2, 0, 1]) # HWC => CHW
+
+                canvas = np.zeros([3, resolution, resolution], dtype=np.uint8)
+                canvas[:, :, (resolution - cw) // 2 : (resolution + cw) // 2] = img
+                tfr.add_image(canvas)
+            except Exception as e:
+                print(image_filenames[order[idx]])
+                print(e)
 
 #----------------------------------------------------------------------------
 
@@ -940,10 +988,17 @@ def execute_cmdline(argv):
     p.add_argument(     '--cx',             help='Center X coordinate (default: 89)', type=int, default=89)
     p.add_argument(     '--cy',             help='Center Y coordinate (default: 121)', type=int, default=121)
 
-    p = add_command(    'create_from_images', 'Create dataset from a directory full of images.',
+    p = add_command(    'create_from_images', 'Create dataset from a directory full of square images.',
                                             'create_from_images datasets/mydataset myimagedir')
     p.add_argument(     'tfrecord_dir',     help='New dataset directory to be created')
     p.add_argument(     'image_dir',        help='Directory containing the images')
+    p.add_argument(     '--shuffle',        help='Randomize image order (default: 1)', type=int, default=1)
+
+    p = add_command(    'create_from_images_pad', 'Create dataset from a directory full of images.',
+                                            'create_from_images datasets/mydataset myimagedir')
+    p.add_argument(     'tfrecord_dir',     help='New dataset directory to be created')
+    p.add_argument(     'image_dir',        help='Directory containing the images')
+    p.add_argument(     '--resolution',     help='Output resolution (default: 256)', type=int, default=256)
     p.add_argument(     '--shuffle',        help='Randomize image order (default: 1)', type=int, default=1)
 
     p = add_command(    'create_from_hdf5', 'Create dataset from legacy HDF5 archive.',
