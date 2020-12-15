@@ -1,5 +1,6 @@
 import glob
 import os
+import pickle
 import re
 
 from pathlib import Path
@@ -32,3 +33,7 @@ def parse_kimg_from_network_name(network_pickle_name):
         kimg = 0.0
 
     return float(kimg)
+
+def save_pkl(obj, filename):
+    with open(filename, 'wb') as file:
+        pickle.dump(obj, file, protocol=pickle.HIGHEST_PROTOCOL)
